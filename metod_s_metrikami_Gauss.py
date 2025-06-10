@@ -121,7 +121,9 @@ class StringArtGenerator:
         return result.astype(np.uint8), result_blurred.astype(np.uint8) if result_blurred is not None else None
     
     def _plot_results(self, result, history, title_suffix=""):
-        metrics = self._calculate_metrics(blurred=("blurred" in title_suffix.lower()))
+        # Определяем, нужно ли применять размытие для вычисления метрик
+        use_blur = "сглаженный" in title_suffix.lower()
+        metrics = self._calculate_metrics(blurred=use_blur)
         
         plt.figure(figsize=(18, 10))
         
@@ -155,7 +157,7 @@ class StringArtGenerator:
             plt.plot(history[metric_key], color=color)
             plt.title(f'{metric_name} = {value}{unit}')
             plt.xlabel('Итерации (x100)')
-            plt.ylabel(metric_name.split(' ')[0] + unit)
+            plt.ylabel('дБ' if metric_key == 'PSNR' else '')
             plt.grid(True)
         
         plt.tight_layout()
@@ -174,9 +176,9 @@ class StringArtGenerator:
 # Параметры
 params = {
     'image_path': "edik.jpg",
-    'nails': 250,
-    'iterations': 200,
-    'output_size': 400,
+    'nails': 512,
+    'iterations': 4096,
+    'output_size': 512,
     'gaussian_blur': True,
     'blur_kernel': (5,5)
 }
