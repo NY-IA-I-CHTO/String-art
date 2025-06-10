@@ -14,7 +14,7 @@ class StringArtGenerator:
         self.gaussian_blur = gaussian_blur
         self.blur_kernel = blur_kernel
         
-        # Загрузка и подготовка изображения
+        # Загрузка изображения
         if isinstance(image_path, str) and image_path.startswith(('http://', 'https://')):
             self.original_image = self._download_image(image_path)
         else:
@@ -23,15 +23,23 @@ class StringArtGenerator:
         if self.original_image is None:
             raise ValueError("Не удалось загрузить изображение")
         
+        # Предварительная обработка
         self.original_image = cv2.resize(self.original_image, (output_size, output_size))
         self.target = 255 - self.original_image
         self.target_float = self.target.astype(np.float32) / 255.0
         
+        if self.gaussian_blur:
+            self.target_blurred = cv2.GaussianBlur(self.target, self.blur_kernel, 0)
+            self.target_float_blurred = self.target_blurred.astype(np.float32) / 255.0
+        else:
+            self.target_blurred = self.target
+            self.target_float_blurred = self.target_float
+        
         # Инициализация холста
         self.canvas = np.ones((output_size, output_size), dtype=np.float32)
         self.nail_positions = self._calculate_nail_positions()
-        self.metric_history = {'Пиковое отношение сигнал\шум': [], 'Оценка сходства изображения': [], 'Оценка передачи ключевых деталей': []}
-        self.metric_history_blurred = {'Пиковое отношение сигнал\шум': [], 'Оценка сходства изображения': [], 'Оценка передачи ключевых деталей': []}
+        self.metric_history = {'PSNR': [], 'SSIM': [], 'IQ5': []}
+        self.metric_history_blurred = {'PSNR': [], 'SSIM': [], 'IQ5': []}
     
     def _download_image(self, url):
         resp = urllib.request.urlopen(url)
@@ -65,9 +73,9 @@ class StringArtGenerator:
             canvas_uint8 = cv2.GaussianBlur(canvas_uint8, self.blur_kernel, 0)
         
         return {
-            'Пиковое отношение сигнал\шум': psnr(target_uint8, canvas_uint8),
-            'Оценка сходства изображения': ssim(target_uint8, canvas_uint8, data_range=255),
-            'Оценка передачи ключевых деталей': self._calculate_iq5(target_uint8, canvas_uint8)
+            'PSNR': psnr(target_uint8, canvas_uint8),
+            'SSIM': ssim(target_uint8, canvas_uint8, data_range=255),
+            'IQ5': self._calculate_iq5(target_uint8, canvas_uint8)
         }
     
     def _find_best_next_nail(self, current_nail):
@@ -92,7 +100,7 @@ class StringArtGenerator:
     def generate(self):
         current_nail = 0
         
-        for i in tqdm(range(self.iterations), desc="Generating String Art"):
+        for i in tqdm(range(self.iterations), desc="Генерация String Art"):
             next_nail = self._find_best_next_nail(current_nail)
             self._draw_line(current_nail, next_nail)
             current_nail = next_nail
@@ -120,34 +128,34 @@ class StringArtGenerator:
         # 1. Оригинальное изображение
         plt.subplot(2, 3, 1)
         plt.imshow(self.original_image, cmap='gray')
-        plt.title('Original Image')
+        plt.title('Оригинальное изображение')
         plt.axis('off')
         
         # 2. Инвертированное изображение
         plt.subplot(2, 3, 2)
         plt.imshow(self.target, cmap='gray')
-        plt.title('Inverted Target Image')
+        plt.title('Инвертированное изображение')
         plt.axis('off')
         
         # 3. Результат String Art
         plt.subplot(2, 3, 3)
         plt.imshow(result, cmap='gray')
-        plt.title(f'String Art {title_suffix}'.strip())
+        plt.title(f'Результат String Art {title_suffix}'.strip())
         plt.axis('off')
         
-        # 4-6. Графики метрик с значениями в заголовках
+        # 4-6. Графики метрик с значениями
         metrics_data = [
-            ('Пиковое отношение сигнал\шум', 'blue', '', f"{metrics['Пиковое отношение сигнал\шум']:.2f}"),
-            ('Оценка сходства изображения', 'green', '', f"{metrics['Оценка сходства изображения']:.4f}"),
-            ('Оценка передачи ключевых деталей', 'red', '', f"{metrics['Оценка передачи ключевых деталей']:.4f}")
+            ('PSNR', 'PSNR (пиковое отношение сигнал/шум)', 'blue', ' дБ', f"{metrics['PSNR']:.2f}"),
+            ('SSIM', 'SSIM (структурное сходство)', 'green', '', f"{metrics['SSIM']:.4f}"),
+            ('IQ5', 'IQ5 (5-й процентиль ошибок)', 'red', '', f"{metrics['IQ5']:.4f}")
         ]
-
-        for i, (metric, color, unit, value) in enumerate(metrics_data, start=4):
+        
+        for i, (metric_key, metric_name, color, unit, value) in enumerate(metrics_data, start=4):
             plt.subplot(2, 3, i)
-            plt.plot(history[metric], color=color)
-            plt.title(f'{metric} {title_suffix} = {value}{unit}')
-            plt.xlabel('Iteration (x100)')
-            plt.ylabel(f'{metric} {unit}')
+            plt.plot(history[metric_key], color=color)
+            plt.title(f'{metric_name} = {value}{unit}')
+            plt.xlabel('Итерации (x100)')
+            plt.ylabel(metric_name.split(' ')[0] + unit)
             plt.grid(True)
         
         plt.tight_layout()
@@ -155,23 +163,26 @@ class StringArtGenerator:
     
     def analyze_results(self, result, result_blurred):
         # Вывод обычного результата
+        print("\nРезультаты для обычного String Art:")
         self._plot_results(result, self.metric_history)
         
         # Вывод сглаженного результата (если есть)
         if result_blurred is not None:
-            self._plot_results(result_blurred, self.metric_history_blurred, "(Blurred)")
+            print("\nРезультаты для сглаженного String Art:")
+            self._plot_results(result_blurred, self.metric_history_blurred, "(сглаженный)")
 
 # Параметры
 params = {
     'image_path': "edik.jpg",
     'nails': 250,
-    'iterations': 2000,
+    'iterations': 200,
     'output_size': 400,
     'gaussian_blur': True,
     'blur_kernel': (5,5)
 }
 
 # Генерация и анализ
+print("Начало обработки...")
 generator = StringArtGenerator(**params)
 result, result_blurred = generator.generate()
 generator.analyze_results(result, result_blurred)
@@ -181,3 +192,4 @@ cv2.imwrite("original.png", generator.original_image)
 cv2.imwrite("string_art_result.png", result)
 if result_blurred is not None:
     cv2.imwrite("string_art_result_blurred.png", result_blurred)
+print("Обработка завершена. Результаты сохранены.")

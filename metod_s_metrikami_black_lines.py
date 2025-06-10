@@ -24,11 +24,11 @@ class StringArtGenerator:
         
         # Предварительная обработка
         self.image = cv2.resize(self.image, (output_size, output_size))
-        self.target = 255 - self.image  # Инверсия для работы с темными линиями
+        self.target = self.image  # Теперь работаем напрямую с изображением (без инверсии)
         self.target_float = self.target.astype(np.float32) / 255.0
         
-        # Инициализация холста
-        self.canvas = np.ones((output_size, output_size), dtype=np.float32)
+        # Инициализация холста (белый фон)
+        self.canvas = np.zeros((output_size, output_size), dtype=np.float32)  # Теперь начинаем с чёрного холста
         self.nail_positions = self._calculate_nail_positions()
         self.error_history = []
         self.ssim_history = []
@@ -51,7 +51,7 @@ class StringArtGenerator:
         end = self.nail_positions[end_idx]
         line_mask = np.zeros_like(self.canvas)
         cv2.line(line_mask, tuple(start), tuple(end), intensity, 1)
-        self.canvas = np.clip(self.canvas - line_mask, 0, 1)
+        self.canvas = np.clip(self.canvas + line_mask, 0, 1)  # Добавляем линии (становится светлее)
     
     def _calculate_metrics(self):
         canvas_uint8 = (self.canvas * 255).astype(np.uint8)
@@ -99,6 +99,7 @@ class StringArtGenerator:
                 self.error_history.append(metrics['MSE'])
                 self.ssim_history.append(metrics['SSIM'])
         
+        # Инвертируем для отображения (чёрные линии на белом фоне)
         result = (1 - self.canvas) * 255
         return result.astype(np.uint8)
     
